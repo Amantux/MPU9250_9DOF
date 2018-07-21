@@ -1,0 +1,84 @@
+#include <MadgwickAHRS.h>
+
+#include "MPU9250.h"
+
+#include <SoftwareSerial.h>
+// XBee's DOUT (TX) is connected to pin 2 (Arduino's Software RX)
+// XBee's DIN (RX) is connected to pin 3 (Arduino's Software TX)
+SoftwareSerial XBee(2, 3); // RX, TX
+// an MPU9250 object with the MPU-9250 sensor on I2C bus 0 with address 0x68
+
+MPU9250 IMU(Wire,0x68);
+int status;
+int SRD = 1;
+float Samples = 1000/(1 + SRD);
+float TimeBetweenSamples = 1000/Samples;
+float CurrentTime = 0;
+float PriorTime = 0;
+Madgwick filter;
+float Toggles[]= {8,9,10,11,12};
+/*
+8 Lock Heading
+9 Disable Motor
+10 Zero Controler
+*/
+boolean HeadingLock = false;
+boolean DisableMotor = false;
+boolean ZeroController = false;
+
+void setup() {
+  // serial to display data
+  Serial.begin(115200);
+  while(!Serial) {}
+  // start communication with IMU 
+  status = IMU.begin();
+  if (status < 0) {
+    Serial.println("IMU initialization unsuccessful");
+    Serial.println("Check IMU wiring or try cycling power");
+    Serial.print("Status: ");
+    Serial.println(status);
+    while(1) {}
+  }
+  XBee.begin(9600);
+ // filter.begin(Samples);
+  // setting the accelerometer full scale range to +/-8G 
+  IMU.setAccelRange(MPU9250::ACCEL_RANGE_8G);
+  // setting the gyroscope full scale range to +/-500 deg/s
+  IMU.setGyroRange(MPU9250::GYRO_RANGE_500DPS);
+  // setting DLPF bandwidth to 20 Hz
+  IMU.setDlpfBandwidth(MPU9250::DLPF_BANDWIDTH_20HZ);
+  // setting SRD to 19 for a 50 Hz update rate
+  IMU.setSrd(SRD);
+  // attaching the interrupt to microcontroller pin 1
+  IMU.readSensor();
+    // display the data
+    PriorTime = CurrentTime;
+    float GyroX = (float)IMU.getGyroX_rads()* 57.2958;
+    float GyroY = (float)IMU.getGyroY_rads()* 57.2958;
+    float GyroZ = (float)IMU.getGyroZ_rads()* 57.2958;
+    filter.update(GyroX,GyroY,GyroZ,IMU.getAccelX_mss(),IMU.getAccelY_mss(),IMU.getAccelZ_mss(),IMU.getMagY_uT(),IMU.getMagX_uT(),IMU.getMagZ_uT());
+}
+
+void loop() {
+  // read the sensor
+  CurrentTime = millis();
+  if((CurrentTime-PriorTime) >= TimeBetweenSamples)
+  {
+    float delta = CurrentTime-PriorTime;
+    IMU.readSensor();
+    // display the data
+    PriorTime = CurrentTime;
+    float GyroX = (float)IMU.getGyroX_rads()* 57.2958;
+    float GyroY = (float)IMU.getGyroY_rads()* 57.2958;
+    float GyroZ = (float)IMU.getGyroZ_rads()* 57.2958;
+    filter.updateIMU(GyroX,GyroY,GyroZ,IMU.getAccelX_mss(),IMU.getAccelY_mss(),IMU.getAccelZ_mss());
+  }
+    float roll = filter.getRoll();
+    float pitch = filter.getPitch();
+    float heading = filter.getYaw();
+    Serial.print(heading);
+    Serial.print(",");
+    Serial.print(pitch);
+    Serial.print(",");
+    Serial.println(roll);
+}
